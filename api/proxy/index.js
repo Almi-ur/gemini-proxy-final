@@ -1,36 +1,40 @@
-const fetch = require('node-fetch'); // Vercel может потребовать явный импорт fetch
-
 // Адрес API Google Gemini
 const TARGET_URL = 'https://generativelanguage.googleapis.com';
 
-// Стандартный экспорт для Node.js runtime на Vercel
-module.exports = async (req, res) => {
-    // req.url уже содержит путь с параметрами (например, /v1beta/models/...)
-    // Убираем /api/proxy из начала, если он там есть
-    const targetPath = req.url.replace(/^\/api\/proxy/, ''); 
-    const targetUrl = TARGET_URL + targetPath;
+// Стандартный экспорт для Vercel Serverless Functions
+export default async function handler(request) {
+    // Входящий URL уже содержит путь и параметры.
+    const url = new URL(request.url, `https://${request.headers.host}`);
+    // Убираем /api/proxy из начала
+    const targetPath = url.pathname.replace(/^\/api\/proxy/, ''); 
+    const targetUrl = TARGET_URL + targetPath + url.search;
 
+    // Создаем новый запрос, копируя метод, заголовки и тело
+    const proxyRequest = new Request(targetUrl, {
+        method: request.method,
+        headers: {
+            'Content-Type': request.headers.get('Content-Type') || 'application/json',
+        },
+        body: request.body,
+        redirect: 'follow'
+    });
+    
     try {
-        const response = await fetch(targetUrl, {
-            method: req.method, // Просто передаем тот же метод (POST)
-            headers: {
-                // Передаем только самый важный заголовок
-                'Content-Type': 'application/json',
-            },
-            // Тело запроса уже приходит как объект, превращаем его в строку
-            body: JSON.stringify(req.body),
-        });
-
-        // Получаем ответ от Google и пересылаем его клиенту
-        const data = await response.json();
-        res.status(response.status).json(data);
+        // Выполняем запрос с помощью встроенного fetch
+        const response = await fetch(proxyRequest);
+        
+        // Возвращаем ответ от Google как есть
+        return response;
 
     } catch (error) {
-        // Если что-то пошло не так, возвращаем ошибку
-        res.status(500).json({ 
+        // Если что-то пошло не так, возвращаем ошибку в формате JSON
+        return new Response(JSON.stringify({ 
             source: 'Vercel Proxy',
             error: 'Failed to fetch from Google API',
             details: error.message 
+        }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
         });
     }
-};
+}
